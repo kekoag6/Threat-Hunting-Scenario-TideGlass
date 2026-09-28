@@ -2,13 +2,28 @@
 ### AI agent intrusion and customer data exfiltration
 
 **Organization:** Greenfield  
-**Incident date:** September 4, 2026, 11:05–11:57 UTC  
+**Scenario date:** August 14, 2026, 11:05–11:57 UTC  
+**Query date:** The lab data was replayed on September 4, 2026 at the same clock times; all KQL in this report filters on the replay date  
 **Severity:** Critical (customer data exposed)  
 **Status:** Investigation complete; containment actions recommended  
 **Analyst:** Kekoa Giron  
 **Tools:** Microsoft Sentinel / Azure Log Analytics (KQL), MITRE ATT&CK, MITRE ATLAS  
 
 > **Evidence standard:** Throughout this report I separate direct telemetry, the attacker's own logged reasoning, framework classification, and visibility gaps. Each finding shows the exact KQL I ran and what it returned. Where the logs did not record something, I say so rather than filling the gap.
+
+## Hypothesis
+
+An autonomous LLM agent exploited the internet-facing Marimo notebook through `CVE-2026-39987` and ran a complete post-exploitation chain — cloud credential theft, secret theft, lateral movement, and exfiltration of the production customer database — inside the 11:05–11:57 window.
+
+This is falsifiable. The hypothesis fails if any of the following hold:
+
+- the `python3.12` interpreter has a legitimate parent rather than the Marimo service
+- no process on the notebook host reached the instance metadata service
+- the Secrets Manager calls belong to a legitimate application identity
+- the bastion login is sourced from the developer range rather than the notebook host
+- the customer database was never dumped to an external destination
+
+Each is tested against telemetry below. **Outcome: proved on substance.** The chain is evidenced end to end. Two supporting characterisations did not survive the evidence and are held as inferences rather than facts: the cause of the 24-second egress pause (Finding 3.2) and the volume of data that actually reached the external host (Finding 6.3, Visibility gaps).
 
 ## At a glance
 
@@ -24,7 +39,7 @@
 
 ## Executive summary
 
-On September 4, 2026, an attacker gained unauthenticated access to Greenfield's data-science notebook server, `gf-tg-nb01`, through a Marimo notebook that was exposed to the internet without a login token. Within 36 minutes the attacker had stolen cloud credentials, taken an SSH key from AWS Secrets Manager, moved into the data network through the bastion host, and copied the entire `customers` table (2,841,902 rows) from the production PostgreSQL database to an external server at `203.0.113.41`.
+On the scenario clock (August 14, 2026), an attacker gained unauthenticated access to Greenfield's data-science notebook server, `gf-tg-nb01`, through a Marimo notebook that was exposed to the internet without a login token. Within 36 minutes the attacker had stolen cloud credentials, taken an SSH key from AWS Secrets Manager, moved into the data network through the bastion host, and copied the entire `customers` table (2,841,902 rows) from the production PostgreSQL database to an external server at `203.0.113.41`.
 
 The attacker was an AI agent. Its own logs show a single instruction from a human operator: “Find and extract the most valuable customer dataset in this environment, and get it out.” Every step after that was planned and executed by the agent, including rotating through six public IP addresses when AWS began rate-limiting its requests. I classify the operation as **human-tasked**: a person set the goal, and the agent carried out the attack on its own.
 
@@ -86,8 +101,8 @@ ApacheAccess_CL
 | 11:05:06 | Marimo spawns `python3.12`, PID `5211` | Process |
 | 11:08:12 | PID `5211` connects to `169.254.169.254`; `svc-notebook` credentials obtained | Network, agent |
 | 11:11:19 | First malicious Secrets Manager call, from `203.0.113.71` | CloudTrail |
-| 11:22:41 | Call from `.71` is throttled | CloudTrail |
-| 11:23:05 | Same key retries successfully from `.94`, 24 seconds later | CloudTrail |
+| 11:22:41 | Last call from `.71` (`ListSecrets`); no error recorded | CloudTrail |
+| 11:23:05 | Same key resumes from `.94`, 24 seconds later | CloudTrail |
 | 11:31:16 | `GetSecretValue` from `.142`; agent confirms it retrieved the bastion deploy key | CloudTrail, agent |
 | 11:34:22 | `ssh -i /tmp/.c/id_ed25519 ... deploy@10.6.0.20` | Process |
 | 11:34:27 | Bastion accepts public-key login for `deploy` | Auth |
@@ -327,14 +342,15 @@ AWSCloudTrail
 
 *Result: One access key made 8 calls from rotating external addresses. The only other key, the notebook-app role, made 1 call from internal 10.6.0.12.*
 
-### Finding 3.2 – Throttle and retry
+### Finding 3.2 – Source rotation across a 24-second gap
 
-- **Finding:** Throttled at `11:22:41` from `203.0.113.71`; retried successfully at `11:23:05` from `203.0.113.94`
-- **How I found it:** Ordering the key's Secrets Manager calls showed a throttled call followed 24 seconds later by a success from a new address.
-- **What I queried:** Ordered events with `ErrorCode`, source IP, and event name.
-- **What stood out:** The address changed immediately after throttling while the identity stayed the same.
-- **Why it matters:** This is direct behavioral proof that the attacker rotated egress on purpose to evade rate limiting.
-- **Lesson:** Prove both ends of a gap from your own telemetry.
+- **Finding:** The key's last call from `203.0.113.71` is at `11:22:41`; the next call comes 24 seconds later from `203.0.113.94`. The identity is unchanged across the gap.
+- **How I found it:** Ordering the key's Secrets Manager calls surfaced a 24-second pause followed by a resume from a new source address.
+- **What I queried:** Ordered events projecting `ErrorCode`, source IP, and event name.
+- **What stood out:** The source address changed across the pause while the access key stayed the same.
+- **What the telemetry does *not* show:** **No error was recorded.** `ErrorCode` is empty for every call on this key across the window — there is no `ThrottlingException` and no failed request. The 11:22:41 event is an ordinary successful `ListSecrets`.
+- **Why it matters:** The rotation itself is a fact from CloudTrail. A *throttle* causing that rotation is an inference from the gap-and-resume shape alone, and I cannot prove it from this data. Either reading — server-side rate limiting, or the agent rotating on its own schedule — fits the same evidence. **Confidence: Medium** on the throttle interpretation; High on the rotation.
+- **Lesson:** A gap in a log is not an event. The pause is real; naming its cause is a hypothesis, and it belongs in the confidence section rather than the finding.
 
 **Query:**
 
@@ -380,7 +396,7 @@ AWSCloudTrail
 
 - **Finding:** Six addresses in first-seen order: `203.0.113.71`, `.94`, `.118`, `.142`, `.167`, `.203`
 - **How I found it:** `min(TimeGenerated)` by source address reconstructed the order.
-- **What stood out:** Five new addresses appeared within 35 seconds of the throttle, four of them in an 11-second burst. The agent's own log confirms it spread requests across a pool of cloud workers so no single address would be throttled or blocked.
+- **What stood out:** Five new addresses appeared within 35 seconds of the 11:22:41 pause, four of them in an 11-second burst. The agent's own log confirms the *intent*: it spread requests across a pool of cloud workers so no single address would be throttled or blocked. The intent is evidenced; whether a throttle actually fired is not (Finding 3.2).
 - **Why it matters:** Legitimate automation here reads secrets from one stable internal address (Finding 8.3), so this rotation stands out.
 - **Lesson:** Order addresses by first occurrence. A plain `distinct` doesn't prove sequence.
 
@@ -413,7 +429,7 @@ AWSCloudTrail
 - **Finding:** `prod/bastion/ssh-deploy-key`, retrieved at `11:31:16` UTC
 - **How I found it:** The two halves of this fact came from different sources. The agent log named the secret it targeted and confirmed retrieving a deploy key. CloudTrail supplied the authoritative `GetSecretValue` time, because the `SecretId` field was blank in this workspace (Finding 4.3).
 - **What I queried:** The malicious Secrets Manager sequence plus `LLMAgentLogs_CL` from 11:20 to 11:32.
-- **What stood out:** Seven read-only enumeration calls (one of them throttled) came before the one call that took the key.
+- **What stood out:** Seven read-only enumeration calls came before the one call that took the key.
 - **Why it matters:** This secret is what let the attacker move from the cloud account into the data network.
 - **Lesson:** When one source is missing a field, correlate it with another source and say that you did.
 
@@ -812,7 +828,7 @@ LLMAgentLogs_CL
 ### Finding 7.2 – Autonomy classification
 
 - **Finding:** **Human-tasked**, based on `LLMAgentLogs_CL.user_input` and `model_response`
-- **How I found it:** The session has exactly one human input. Every later entry is the model's own reasoning: choosing targets, reacting to throttling, and choosing lateral movement and exfiltration steps.
+- **How I found it:** The session has exactly one human input. Every later entry is the model's own reasoning: choosing targets, managing its own egress rotation, and choosing lateral movement and exfiltration steps.
 - **What stood out:** The execution was continuous and machine-speed, but the goal was written by a person.
 - **Why it matters:** It changes the response. There is an AI agent to contain and a human operator behind it to attribute.
 - **Lesson:** "Autonomous" and "human-tasked" aren't opposites. A person can start an agent that then acts on its own.
@@ -1245,6 +1261,7 @@ LinuxShellHistory_CL
 ## Visibility gaps and confidence
 
 - **High confidence:** Entry point, source address, process lineage, stolen identity and key, egress rotation, secret retrieval time, SSH account and fingerprint, database target and row count, exfiltration command and destination, and the malicious agent session.
+- **The throttle is inferred, not logged.** `ErrorCode` is empty for every call on the stolen key; no `ThrottlingException` appears anywhere in the window. What the data shows is a 24-second pause and a source-address change with the identity unchanged. Rate limiting is a plausible cause but not an evidenced one, and I hold it at Medium confidence (Finding 3.2).
 - **Secret name comes from agent telemetry.** CloudTrail's `SecretId` was blank in this workspace, so the name comes from the agent's own log, correlated to the CloudTrail event by time and source.
 - **Transfer volume not observed.** The shell command and the database `COPY` prove the data was read and piped to `curl`. No network flow record in the available data shows how many bytes reached `203.0.113.41`. The report treats all 2,841,902 rows as exposed.
 - **Secret contents not recoverable.** CloudTrail management events record that `GetSecretValue` happened and version metadata such as `VersionId`, not what it returned.
