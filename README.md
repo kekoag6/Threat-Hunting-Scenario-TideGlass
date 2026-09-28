@@ -1109,10 +1109,10 @@ any of them to the attacker, I tested the benign explanation and recorded why it
 | Alternative explanation | Where tested | Outcome |
 |---|---|---|
 | The `pg_dump` was the routine nightly backup | Finding 6.5 | **Rejected.** Two independent differences: the account (`deploy`, not `pgbackup`) and the destination (external `203.0.113.41`, not inside `10.6.0.0/24`). |
-| The metadata-service read was the credential-helper daemon | Findings 2.2, 8.2 | **Rejected.** Ten in-window reads of `169.254.169.254`: nine from the refresh daemon, one from the interpreter (PID `5211`). |
+| The metadata-service read was the credential-helper daemon | Findings 2.2, 8.2 | **Rejected.** 86 connections to `169.254.169.254` that day: 85 from the routine credential-helper daemon, one from `python3.12` (PID `5211`). |
 | The `python3.12` process was an ordinary analyst notebook cell | Finding 8.1 | **Rejected.** 74 spawns on the host — 72 parented to `bash`, one to `systemd`, and exactly one to the Marimo service. Parent lineage is the discriminator, not the binary name. |
-| The Secrets Manager reads were the legitimate application | Finding 8.3 | **Rejected.** Identity and key type separate them; the event name and result do not. |
-| The bastion login was routine administrative access | Findings 5.2, 8.x | **Rejected.** A service account that does not normally log in interactively, sourced from the notebook host rather than the developer range. |
+| The Secrets Manager reads were the legitimate application | Finding 8.3 | **Rejected.** 22 successful `GetSecretValue` calls that day were identical on result, `ReadOnly`, and user agent. Twenty-one came from the `notebook-app` role at internal `10.6.0.12`; one came from `svc-notebook` at an external address. No single field separated them — the combination of source network and target did. |
+| The bastion login was routine administrative access | Finding 5.2 | **Rejected.** 318 successful logins that day, all public-key: four administrators with 72–90 each, and `deploy` with exactly one. The authentication method was normal; the account was not. |
 | The secret's name or contents are recoverable from another source | Finding 4.3, Appendix A | **Not recoverable.** `SecretId` was blank in this workspace and `ResponseElements` carries `VersionId` only. The secret's identity came from the agent's own log instead — second-source corroboration, recorded as a gap rather than closed. |
 
 ## Not hunted in this engagement
