@@ -1101,6 +1101,99 @@ LLMAgentLogs_CL
 
 The SSH command in Finding 5.1 ran as PID 5214, launched by python3.12 PID 5211, which ties the lateral movement back to the original exploit process.
 
+## Alternative explanations tested and rejected
+
+Each malicious step in this environment had a legitimate counterpart. Before attributing
+any of them to the attacker, I tested the benign explanation and recorded why it failed.
+
+| Alternative explanation | Where tested | Outcome |
+|---|---|---|
+| The `pg_dump` was the routine nightly backup | Finding 6.5 | **Rejected.** Two independent differences: the account (`deploy`, not `pgbackup`) and the destination (external `203.0.113.41`, not inside `10.6.0.0/24`). |
+| The metadata-service read was the credential-helper daemon | Findings 2.2, 8.2 | **Rejected.** Ten in-window reads of `169.254.169.254`: nine from the refresh daemon, one from the interpreter (PID `5211`). |
+| The `python3.12` process was an ordinary analyst notebook cell | Finding 8.1 | **Rejected.** 74 spawns on the host — 72 parented to `bash`, one to `systemd`, and exactly one to the Marimo service. Parent lineage is the discriminator, not the binary name. |
+| The Secrets Manager reads were the legitimate application | Finding 8.3 | **Rejected.** Identity and key type separate them; the event name and result do not. |
+| The bastion login was routine administrative access | Findings 5.2, 8.x | **Rejected.** A service account that does not normally log in interactively, sourced from the notebook host rather than the developer range. |
+| The secret's name or contents are recoverable from another source | Finding 4.3, Appendix A | **Not recoverable.** `SecretId` was blank in this workspace and `ResponseElements` carries `VersionId` only. The secret's identity came from the agent's own log instead — second-source corroboration, recorded as a gap rather than closed. |
+
+## Not hunted in this engagement
+
+This hunt scoped to the intrusion chain — initial access through exfiltration — and stopped at
+the end of the agent session. The following were **not** searched for. They are recorded here so
+that no reader mistakes their absence from the findings for evidence that they did not occur.
+
+| Not hunted | ATT&CK | Why it matters |
+|---|---|---|
+| SSH authorized-keys backdoor, account creation, cron persistence | `T1098.004`, `T1136`, `T1053.003` | The attacker held a valid key and root-capable access on two hosts. Nothing here establishes whether it left a way back in. |
+| Container or host escape from the notebook workload | `T1611` | Notebook workloads are commonly containerised. Whether the interpreter attempted to break out of its boundary is unknown. |
+| Destructive impact or encryption | `T1486`, `T1485` | The operation is characterised as theft. No query confirms the database was left intact. |
+| Anti-forensic activity — history clearing, log truncation | `T1070.003`, `T1070.002` | Shell history is load-bearing evidence throughout this report. Whether it was tampered with was never checked. |
+| Credential reuse after `11:57` | `T1078.004` | The `svc-notebook` key and the bastion deploy key are still valid. Activity outside the hunt window was not examined. |
+
+Closing these is the next hunt, not a claim this one makes. The queries below are the ones I
+would run first.
+
+```kusto
+// Persistence: backdoor keys, new accounts, scheduled jobs
+LinuxShellHistory_CL
+| where TimeGenerated between (
+    datetime(2026-09-04T11:05:00Z) ..
+    datetime(2026-09-05T00:00:00Z)
+)
+| where Command has_any (
+    "authorized_keys", "useradd", "adduser", "crontab",
+    "/etc/cron", "systemctl enable", "chattr"
+)
+| project TimeGenerated, Computer, ShellUser, Command
+| order by TimeGenerated asc
+```
+
+```kusto
+// Container / host escape attempts from the notebook interpreter
+LinuxProcess_CL
+| where EventStartTime between (
+    datetime(2026-09-04T11:05:00Z) ..
+    datetime(2026-09-04T11:57:00Z)
+)
+| where Dvc == "gf-tg-nb01"
+| where TargetProcessCommandLine has_any (
+    "nsenter", "unshare", "capsh", "runc",
+    "docker.sock", "/proc/1/", "--privileged"
+)
+| project EventStartTime, TargetProcessName, TargetProcessId, TargetProcessCommandLine
+```
+
+```kusto
+// Anti-forensics: history clearing and log truncation
+LinuxShellHistory_CL
+| where TimeGenerated between (
+    datetime(2026-09-04T11:05:00Z) ..
+    datetime(2026-09-05T00:00:00Z)
+)
+| where Command has_any (
+    "history -c", "unset HISTFILE", "HISTFILE=/dev/null",
+    "truncate -s 0", "shred", "rm -f /var/log"
+)
+| project TimeGenerated, Computer, ShellUser, Command
+```
+
+```kusto
+// Credential reuse after the hunt window closed
+AWSCloudTrail
+| where TimeGenerated > datetime(2026-09-04T11:57:00Z)
+| where UserIdentityAccessKeyId == "AKIA4TIDEGLASS0EXAMPLE"
+| project TimeGenerated, EventName, SourceIpAddress, UserAgent, ErrorCode
+| order by TimeGenerated asc
+```
+
+```kusto
+// Did the agent session resume after its last recorded action?
+LLMAgentLogs_CL
+| where TimeGenerated > datetime(2026-09-04T11:57:00Z)
+| where session_id == "tg-4b81e0d7"
+| project TimeGenerated, tool_name, model_response
+| order by TimeGenerated asc
+```
+
 ## MITRE ATT&CK and ATLAS mapping
 
 Each observed behavior mapped to MITRE ATT&CK, plus the ATLAS classification from Finding 2.3.
@@ -1267,6 +1360,7 @@ LinuxShellHistory_CL
 - **Secret contents not recoverable.** CloudTrail management events record that `GetSecretValue` happened and version metadata such as `VersionId`, not what it returned.
 - **Timestamps.** Shell history logged the exfiltration command at 11:40:49, four seconds after PostgreSQL logged the `COPY`, consistent with history being written as the command completes. I use the database log as the authoritative collection time.
 - **Operator not identified.** "Human-tasked" describes how the attack ran. It does not identify the person who gave the instruction.
+- **Scope ends at the agent session.** This hunt covered initial access through exfiltration inside the 11:05–11:57 window. Persistence, container escape, destructive impact, anti-forensics, and post-window credential reuse were not searched for; see *Not hunted in this engagement*. Their absence from the findings is a limit of scope, not a negative result.
 
 ## Conclusion
 
