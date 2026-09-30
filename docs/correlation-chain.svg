@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 640" width="880" height="640" role="img"
+     aria-label="The TideGlass intrusion chain from 11:05:00 to 11:40:49 UTC, eight stages each evidenced by a different telemetry source. WebSocket exploit from Apache access logs, interpreter spawn from Linux process logs, instance metadata connection from Linux network logs, Secrets Manager calls from AWS CloudTrail, bastion deploy key retrieval from the agent logs, bastion login from Linux auth logs, the 2,841,902-row COPY from PostgreSQL syslog, and the pg_dump exfiltration from shell history. No single source contains the chain.">
+
+  <rect x="0" y="0" width="880" height="640" fill="#0f172a"/>
+
+  <text x="30" y="34" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#e2e8f0">TideGlass — one chain, eight sources, none of them complete</text>
+  <text x="30" y="55" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" fill="#94a3b8">2026-08-14 UTC · exploit to exfiltration: 35 min 49 s · AI agent session tg-4b81e0d7</text>
+
+  <text x="95" y="86" text-anchor="end" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="10" fill="#64748b" letter-spacing="0.5">TIME</text>
+  <text x="600" y="86" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="10" fill="#64748b" letter-spacing="0.5">EVIDENCED BY</text>
+
+  <line x1="132" y1="100" x2="132" y2="562" stroke="#334155" stroke-width="1.5"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">
+
+    <circle cx="132" cy="112" r="5" fill="#38bdf8"/>
+    <text x="95" y="116" text-anchor="end" fill="#94a3b8">11:05:00</text>
+    <text x="152" y="116" fill="#e2e8f0">WebSocket to /ws/kernel — HTTP 101</text>
+    <text x="600" y="116" fill="#7dd3fc">ApacheAccess_CL</text>
+
+    <circle cx="132" cy="172" r="5" fill="#38bdf8"/>
+    <text x="95" y="176" text-anchor="end" fill="#94a3b8">11:05:06</text>
+    <text x="152" y="176" fill="#e2e8f0">Marimo spawns python3.12, PID 5211</text>
+    <text x="600" y="176" fill="#7dd3fc">LinuxProcess_CL</text>
+
+    <circle cx="132" cy="232" r="5" fill="#38bdf8"/>
+    <text x="95" y="236" text-anchor="end" fill="#94a3b8">11:08:12</text>
+    <text x="152" y="236" fill="#e2e8f0">PID 5211 reaches 169.254.169.254</text>
+    <text x="600" y="236" fill="#7dd3fc">LinuxNetwork_CL</text>
+
+    <circle cx="132" cy="292" r="5" fill="#38bdf8"/>
+    <text x="95" y="296" text-anchor="end" fill="#94a3b8">11:11:19</text>
+    <text x="152" y="296" fill="#e2e8f0">First malicious Secrets Manager call</text>
+    <text x="600" y="296" fill="#7dd3fc">AWSCloudTrail</text>
+
+    <circle cx="132" cy="352" r="5" fill="#38bdf8"/>
+    <text x="95" y="356" text-anchor="end" fill="#94a3b8">11:31:16</text>
+    <text x="152" y="356" fill="#e2e8f0">Bastion deploy key retrieved</text>
+    <text x="600" y="356" fill="#7dd3fc">LLMAgentLogs_CL</text>
+
+    <circle cx="132" cy="412" r="5" fill="#38bdf8"/>
+    <text x="95" y="416" text-anchor="end" fill="#94a3b8">11:34:27</text>
+    <text x="152" y="416" fill="#e2e8f0">Bastion accepts deploy public key</text>
+    <text x="600" y="416" fill="#7dd3fc">LinuxAuth_CL</text>
+
+    <circle cx="132" cy="472" r="5" fill="#f59e0b"/>
+    <text x="95" y="476" text-anchor="end" fill="#94a3b8">11:40:45</text>
+    <text x="152" y="476" fill="#fcd34d">COPY public.customers — 2,841,902 rows</text>
+    <text x="600" y="476" fill="#7dd3fc">Syslog</text>
+
+    <circle cx="132" cy="532" r="6" fill="#ef4444"/>
+    <text x="95" y="536" text-anchor="end" fill="#94a3b8">11:40:49</text>
+    <text x="152" y="536" fill="#fca5a5">pg_dump | gzip | curl to 203.0.113.41:8443</text>
+    <text x="600" y="536" fill="#7dd3fc">LinuxShellHistory_CL</text>
+
+  </g>
+
+  <text x="30" y="586" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11.5" fill="#cbd5e1">Every action above also exists in legitimate form on this estate.</text>
+  <text x="30" y="606" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" fill="#64748b">Process lineage, identity, source address and timing are what separated the intrusion from routine activity —</text>
+  <text x="30" y="622" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" fill="#64748b">no single one of these sources contains the chain.</text>
+</svg>

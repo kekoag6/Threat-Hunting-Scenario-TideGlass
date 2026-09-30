@@ -95,6 +95,9 @@ ApacheAccess_CL
 
 ## Attack timeline
 
+![Chain of eight stages from 11:05:00 to 11:40:49, each evidenced by a different telemetry source: Apache access, Linux process, Linux network, AWS CloudTrail, agent logs, Linux auth, PostgreSQL syslog, and shell history](docs/correlation-chain.svg)
+
+
 | Time (UTC) | Event | Source |
 |---|---|---|
 | 11:05:00 | `GET /ws/kernel` from `198.51.100.23`, HTTP 101 | Apache |
